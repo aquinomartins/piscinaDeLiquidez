@@ -34,11 +34,18 @@ small.hint { color:#6b7280; }
 .game-actions .action-buttons { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin-top:14px; }
 .game-actions p { margin:0; }
 .game-actions button { width:100%; }
+.stage-controls { margin-top:18px; padding-top:14px; border-top:1px solid #e5e7eb; }
+.stage-controls h3 { margin:0 0 10px; color:#111827; }
+.stage-controls .action-buttons { margin-top:10px; }
 .btn-inline { width:auto !important; display:inline-block; padding:6px 10px; font-size:0.85rem; margin-left:8px; }
 .game-table td.numeric { text-align:right; }
 .game-table tr.awaiting-semifinal td { background:#fef2f2; }
 .game-table tr.awaiting-semifinal td span.flag { color:#b91c1c; font-weight:600; }
 .game-table tr.ready-semifinal td span.flag { color:#047857; font-weight:600; }
+.game-table tr.eliminated td { background:#e5e7eb; color:#6b7280; }
+.game-table tr.eliminated td .team-name { text-decoration:line-through; color:#6b7280; }
+.game-table tr.eliminated td span.flag { color:#6b7280; }
+.game-table tr.champion td { background:#fef3c7; font-weight:600; }
 .game-history { max-height:280px; overflow-y:auto; padding-left:18px; }
 .game-history li { margin-bottom:6px; }
 .game-history time { color:#6b7280; font-size:0.85rem; margin-right:6px; }
