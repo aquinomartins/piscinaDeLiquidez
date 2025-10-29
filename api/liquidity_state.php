@@ -138,6 +138,7 @@ function liquidity_state_normalize($state) {
   }
 
   $normalized = $state;
+  $usesRoster = array_key_exists('usesRoster', $state) ? (bool)$state['usesRoster'] : null;
   $normalized['round'] = isset($state['round']) && is_numeric($state['round']) ? max(1, (int)$state['round']) : 1;
   $normalized['turnIndex'] = isset($state['turnIndex']) && is_numeric($state['turnIndex']) ? (int)$state['turnIndex'] : 0;
   $normalized['awaitingRoundEnd'] = !empty($state['awaitingRoundEnd']);
@@ -174,6 +175,17 @@ function liquidity_state_normalize($state) {
     unset($team);
     $normalized['teams'] = $teams;
   }
+
+  if ($usesRoster === null) {
+    $usesRoster = false;
+    foreach ($normalized['teams'] as $team) {
+      if (!empty($team['userId'])) {
+        $usesRoster = true;
+        break;
+      }
+    }
+  }
+  $normalized['usesRoster'] = $usesRoster;
 
   if (!isset($state['history']) || !is_array($state['history'])) {
     $normalized['history'] = [];

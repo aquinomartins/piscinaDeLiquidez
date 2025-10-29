@@ -42,25 +42,37 @@ let liquidityStateVersion = null;
 let liquidityServerTime = null;
 let liquiditySaving = false;
 
-function createLiquidityGame(players){
-  const list = Array.isArray(players) ? players : [];
-  const validPlayers = list
-    .map(player => ({
-      userId: typeof player.id === 'number' ? player.id : (parseInt(player.id, 10) || null),
-      playerName: typeof player.name === 'string' ? player.name.trim() : ''
-    }))
-    .filter(p => p.userId !== null || p.playerName);
+function createLiquidityGame(source){
+  let normalizedPlayers = [];
 
-  if (validPlayers.length < 2) return null;
+  if (Array.isArray(source)){
+    normalizedPlayers = source
+      .map((player, idx)=>({
+        userId: typeof player.id === 'number' ? player.id : (parseInt(player.id, 10) || null),
+        playerName: typeof player.name === 'string' ? player.name.trim() : '',
+        fallbackName: `Jogador ${idx + 1}`
+      }))
+      .filter(p => p.userId !== null || p.playerName);
+  } else {
+    const total = Math.min(Math.max(parseInt(source, 10) || 0, 2), 12);
+    normalizedPlayers = Array.from({ length: total }).map((_, idx)=>({
+      userId: null,
+      playerName: '',
+      fallbackName: `Time ${String.fromCharCode(65 + (idx % 26))}${idx >= 26 ? '-' + (Math.floor(idx / 26) + 1) : ''}`
+    }));
+  }
 
-  const teams = validPlayers.map((player, idx)=>{
-    const fallbackName = `Jogador ${idx + 1}`;
-    const baseName = player.playerName || fallbackName;
+  if (normalizedPlayers.length < 2) return null;
+
+  const usesRoster = Array.isArray(source);
+
+  const teams = normalizedPlayers.map((player, idx)=>{
+    const base = player.playerName || player.fallbackName || `Jogador ${idx + 1}`;
     return {
       id: idx + 1,
       userId: player.userId,
-      playerName: baseName,
-      name: baseName,
+      playerName: player.userId !== null ? (player.playerName || base) : '',
+      name: base,
       cash: 1600,
       btc: 0,
       nftHand: 1,
@@ -77,7 +89,8 @@ function createLiquidityGame(players){
     pool: { nfts:0, shares:0 },
     history: [],
     stage: 'regular',
-    championId: null
+    championId: null,
+    usesRoster
   };
 }
 
@@ -109,6 +122,9 @@ function ensureLiquidityStateStructure(){
   liquidityGame.awaitingRoundEnd = !!liquidityGame.awaitingRoundEnd;
   liquidityGame.stage = typeof liquidityGame.stage === 'string' ? liquidityGame.stage : 'regular';
   if (!('championId' in liquidityGame)) liquidityGame.championId = null;
+  if (typeof liquidityGame.usesRoster !== 'boolean'){
+    liquidityGame.usesRoster = liquidityGame.teams.some(team => team.userId !== null);
+  }
   if (liquidityGame.turnIndex < 0 || liquidityGame.turnIndex >= liquidityGame.teams.length){
     const first = firstActiveLiquidityIndex(liquidityGame);
     liquidityGame.turnIndex = first >= 0 ? first : 0;
@@ -116,7 +132,7 @@ function ensureLiquidityStateStructure(){
 }
 
 function syncLiquidityGamePlayers(){
-  if (!liquidityGame || !Array.isArray(liquidityPlayers)) return false;
+  if (!liquidityGame || !liquidityGame.usesRoster || !Array.isArray(liquidityPlayers)) return false;
   let changed = false;
   const existingIds = new Set(liquidityGame.teams.map(t=>t.userId));
   let maxId = liquidityGame.teams.reduce((acc, team)=>Math.max(acc, team.id || 0), 0);
@@ -287,11 +303,19 @@ async function viewLiquidityGame(){
   const playerList = playerCount
     ? `<ol class="player-list">${playerItems}</ol>`
     : '<p class="hint">Nenhum usuário cadastrado até o momento.</p>';
-  const btnLabel = liquidityGame ? 'Reiniciar jogo' : 'Iniciar jogo';
-  const disabledAttr = playerCount < 2 ? 'disabled' : '';
-  const warning = playerCount < 2
-    ? '<p class="hint err">Cadastre pelo menos 2 usuários confirmados para iniciar o jogo.</p>'
+  const rosterDisabledAttr = playerCount < 2 ? 'disabled' : '';
+  const hasGame = !!liquidityGame;
+  const rosterLabel = hasGame ? 'Reiniciar com usuários confirmados' : 'Iniciar com usuários confirmados';
+  const manualLabel = hasGame ? 'Reiniciar jogo manual' : 'Iniciar jogo manual';
+  const existingTeamCount = (liquidityGame && Array.isArray(liquidityGame.teams)) ? liquidityGame.teams.length : NaN;
+  const manualDefault = Number.isFinite(existingTeamCount)
+    ? existingTeamCount
+    : Math.max(playerCount, 4);
+  const manualValue = Math.min(Math.max(manualDefault || 4, 2), 12);
+  const rosterWarning = playerCount < 2
+    ? '<p class="hint err">Cadastre pelo menos 2 usuários confirmados para iniciar o jogo com a lista de usuários.</p>'
     : '<p class="hint">Cada jogador inicia com R$1.600, 1 NFT em mãos e 0 BTC. Você pode renomear o time (apelido) após o início.</p>';
+  const manualHint = '<p class="hint">Use o modo manual para simulações ou treinos com times fictícios. Os jogadores cadastrados não são sincronizados automaticamente.</p>';
   const dailyInfo = '<p class="hint">A taxa diária de R$100 e a distribuição de 10% do valor das NFTs da piscina acontecem automaticamente às 19h.</p>';
 
   view.innerHTML = `
@@ -302,25 +326,56 @@ async function viewLiquidityGame(){
         <h3>Jogadores cadastrados (${playerCount})</h3>
         ${playerList}
       </div>
-      <div class="actions">
-        <button id="startGameBtn" ${disabledAttr}>${btnLabel}</button>
+      <div class="actions actions-roster">
+        <button id="startRosterGameBtn" ${rosterDisabledAttr}>${rosterLabel}</button>
       </div>
-      ${warning}
+      ${rosterWarning}
+      <div class="manual-setup">
+        <h3>Modo manual (alternativo)</h3>
+        <div class="actions manual-actions">
+          <label for="manualTeamCount">Quantidade de times</label>
+          <input type="number" id="manualTeamCount" value="${manualValue}" min="2" max="12" style="max-width:120px" />
+          <button id="startManualGameBtn">${manualLabel}</button>
+        </div>
+        ${manualHint}
+      </div>
       ${dailyInfo}
     </div>
     <div id="gameArea"></div>`;
 
-  const startBtn = document.getElementById('startGameBtn');
-  if (startBtn){
-    startBtn.addEventListener('click', async ()=>{
+  const startRosterBtn = document.getElementById('startRosterGameBtn');
+  if (startRosterBtn){
+    startRosterBtn.addEventListener('click', async ()=>{
       if (liquidityPlayers.length < 2){
-        alert('Cadastre pelo menos 2 usuários para iniciar o jogo.');
+        alert('Cadastre pelo menos 2 usuários para iniciar o jogo com a lista de usuários.');
         return;
       }
       if (liquidityGame && !confirm('Reiniciar o jogo descartará o estado atual. Deseja continuar?')) return;
       const game = createLiquidityGame(liquidityPlayers);
       if (!game){
         alert('Não foi possível iniciar o jogo com os usuários cadastrados.');
+        return;
+      }
+      liquidityGame = game;
+      ensureLiquidityStateStructure();
+      await persistLiquidityState();
+    });
+  }
+
+  const manualBtn = document.getElementById('startManualGameBtn');
+  const manualInput = document.getElementById('manualTeamCount');
+  if (manualBtn && manualInput){
+    manualBtn.addEventListener('click', async ()=>{
+      const qty = parseInt(manualInput.value, 10);
+      if (!(qty >= 2 && qty <= 12)){
+        alert('Informe um número de times entre 2 e 12.');
+        manualInput.focus();
+        return;
+      }
+      if (liquidityGame && !confirm('Reiniciar o jogo descartará o estado atual. Deseja continuar?')) return;
+      const game = createLiquidityGame(qty);
+      if (!game){
+        alert('Não foi possível iniciar o jogo manualmente.');
         return;
       }
       liquidityGame = game;
@@ -343,11 +398,11 @@ function renderLiquidityGameArea(){
   if (!liquidityGame){
     const count = liquidityPlayers.length;
     if (count >= 2){
-      container.innerHTML = `<p class="hint">Clique em <strong>Iniciar jogo</strong> para começar com os ${count} jogador(es) cadastrados.</p>`;
+      container.innerHTML = `<p class="hint">Clique em <strong>Iniciar com usuários confirmados</strong> para começar com os ${count} jogador(es) cadastrados ou use o modo manual para treinos.</p>`;
     } else if (count === 1){
-      container.innerHTML = '<p class="hint">Cadastre pelo menos mais um usuário confirmado para iniciar o jogo.</p>';
+      container.innerHTML = '<p class="hint">Cadastre pelo menos mais um usuário confirmado para iniciar o jogo com a lista de usuários ou utilize o modo manual.</p>';
     } else {
-      container.innerHTML = '<p class="hint">Cadastre novos usuários para habilitar o jogo.</p>';
+      container.innerHTML = '<p class="hint">Cadastre novos usuários para habilitar o jogo com a lista de participantes ou defina um número de times no modo manual.</p>';
     }
     return;
   }
@@ -438,6 +493,10 @@ function renderLiquidityGameArea(){
       <div class="summary-card">
         <h4>Liderança em R$</h4>
         <p>${esc(leaderTxt)}</p>
+      </div>
+      <div class="summary-card">
+        <h4>Modo do jogo</h4>
+        <p>${state.usesRoster ? 'Usuários cadastrados' : 'Configuração manual'}</p>
       </div>
     </div>
     <section class="section">
