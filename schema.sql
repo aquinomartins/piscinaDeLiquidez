@@ -233,3 +233,11 @@ CREATE TABLE schools (
   city VARCHAR(120),
   metadata_json JSON NULL
 );
+
+-- ====== ESTADO DO JOGO PISCINA DE LIQUIDEZ ======
+CREATE TABLE liquidity_states (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  data JSON NOT NULL,
+  last_settlement_date DATE NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
