@@ -332,28 +332,48 @@ function liquidityWithdraw(team){
 }
 
 function liquidityBuyBTC(team){
+  const sellerId = prompt('Número do time vendedor (veja a coluna # na tabela):', '');
+  if (!sellerId) return;
+  const sellerIdx = parseInt(sellerId, 10) - 1;
+  const seller = liquidityGame.teams[sellerIdx];
+  if (!seller){ alert('Time vendedor inválido.'); return; }
+  if (seller === team){ alert('Não é possível comprar de si mesmo.'); return; }
+  if (seller.eliminated){ alert('O vendedor informado já foi eliminado do jogo.'); return; }
   const qty = parseFloat(prompt('Quantidade de BTC a comprar:', '1'));
   if (!(qty > 0)) return;
+  if ((seller.btc ?? 0) + 1e-6 < qty){ alert('O vendedor não possui essa quantidade de BTC.'); return; }
   const price = parseFloat(prompt('Preço por BTC (R$):', '100000'));
   if (!(price >= 0)) return;
   const total = qty * price;
   if (team.cash + 1e-6 < total){ alert('Saldo insuficiente para esta compra.'); return; }
   team.cash -= total;
   team.btc += qty;
-  addLiquidityHistory(team, `Comprou ${formatBTC(qty)} BTC por ${formatBRL(total)} (R$ ${formatNumber(price)} / BTC).`);
+  seller.cash += total;
+  seller.btc -= qty;
+  addLiquidityHistory(team, `Comprou ${formatBTC(qty)} BTC de ${seller.name} por ${formatBRL(total)} (R$ ${formatNumber(price)} / BTC).`);
   advanceLiquidityTurn();
 }
 
 function liquiditySellBTC(team){
+  const buyerId = prompt('Número do time comprador (veja a coluna # na tabela):', '');
+  if (!buyerId) return;
+  const buyerIdx = parseInt(buyerId, 10) - 1;
+  const buyer = liquidityGame.teams[buyerIdx];
+  if (!buyer){ alert('Time comprador inválido.'); return; }
+  if (buyer === team){ alert('Não é possível vender para o próprio time.'); return; }
+  if (buyer.eliminated){ alert('O comprador informado já foi eliminado do jogo.'); return; }
   const qty = parseFloat(prompt('Quantidade de BTC a vender:', '1'));
   if (!(qty > 0)) return;
   if (team.btc + 1e-6 < qty){ alert('Este time não possui essa quantidade de BTC.'); return; }
   const price = parseFloat(prompt('Preço por BTC (R$):', '100000'));
   if (!(price >= 0)) return;
   const total = qty * price;
+  if (buyer.cash + 1e-6 < total){ alert('O comprador não possui caixa suficiente.'); return; }
   team.btc -= qty;
   team.cash += total;
-  addLiquidityHistory(team, `Vendeu ${formatBTC(qty)} BTC por ${formatBRL(total)} (R$ ${formatNumber(price)} / BTC).`);
+  buyer.btc = (buyer.btc || 0) + qty;
+  buyer.cash -= total;
+  addLiquidityHistory(team, `Vendeu ${formatBTC(qty)} BTC para ${buyer.name} por ${formatBRL(total)} (R$ ${formatNumber(price)} / BTC).`);
   advanceLiquidityTurn();
 }
 
