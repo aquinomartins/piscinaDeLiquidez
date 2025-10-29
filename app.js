@@ -37,18 +37,35 @@ function esc(str){
 
 /* ========= Liquidity Game ========= */
 let liquidityGame = null;
+let liquidityPlayers = [];
 
-function createLiquidityGame(teamCount){
-  const total = Math.min(Math.max(parseInt(teamCount,10) || 0, 2), 12);
-  const teams = Array.from({length: total}).map((_, idx)=>({
-    id: idx + 1,
-    name: `Time ${String.fromCharCode(65 + (idx % 26))}${idx>=26 ? '-' + (Math.floor(idx/26)+1):''}`,
-    cash: 1600,
-    btc: 0,
-    nftHand: 1,
-    poolShares: 0,
-    eliminated: false
-  }));
+function createLiquidityGame(players){
+  const list = Array.isArray(players) ? players : [];
+  const validPlayers = list
+    .map(player => ({
+      userId: typeof player.id === 'number' ? player.id : (parseInt(player.id, 10) || null),
+      playerName: typeof player.name === 'string' ? player.name.trim() : ''
+    }))
+    .filter(p => p.userId !== null || p.playerName);
+
+  if (validPlayers.length < 2) return null;
+
+  const teams = validPlayers.map((player, idx)=>{
+    const fallbackName = `Jogador ${idx + 1}`;
+    const baseName = player.playerName || fallbackName;
+    return {
+      id: idx + 1,
+      userId: player.userId,
+      playerName: baseName,
+      name: baseName,
+      cash: 1600,
+      btc: 0,
+      nftHand: 1,
+      poolShares: 0,
+      eliminated: false
+    };
+  });
+
   return {
     round: 1,
     turnIndex: 0,
@@ -83,27 +100,63 @@ function firstActiveLiquidityIndex(state){
   return nextActiveLiquidityIndex(state, -1);
 }
 
-function viewLiquidityGame(){
+async function viewLiquidityGame(){
   const view = document.getElementById('view');
-  const teamCount = liquidityGame ? liquidityGame.teams.length : 4;
-  const html = `
+  const data = await getJSON(API('users.php'));
+  if (data.__auth===false) return needLogin();
+
+  liquidityPlayers = (Array.isArray(data.users) ? data.users : []).map(player => ({
+    id: player ? player.id : null,
+    name: (player && typeof player.name === 'string') ? player.name.trim() : ''
+  }));
+  const playerCount = liquidityPlayers.length;
+  const playerItems = liquidityPlayers
+    .map((player, idx)=>{
+      const label = player.name ? player.name : `Jogador ${idx + 1}`;
+      return `<li>${esc(label)}</li>`;
+    })
+    .join('');
+  const playerList = playerCount
+    ? `<ol class="player-list">${playerItems}</ol>`
+    : '<p class="hint">Nenhum usuário cadastrado até o momento.</p>';
+  const btnLabel = liquidityGame ? 'Reiniciar jogo' : 'Iniciar jogo';
+  const disabledAttr = playerCount < 2 ? 'disabled' : '';
+  const warning = playerCount < 2
+    ? '<p class="hint err">Cadastre pelo menos 2 usuários confirmados para iniciar o jogo.</p>'
+    : '<p class="hint">Cada jogador inicia com R$1.600, 1 NFT em mãos e 0 BTC. Você pode renomear o time (apelido) após o início.</p>';
+
+  view.innerHTML = `
     <div class="section game-setup">
       <h1>Jogo Piscina de Liquidez</h1>
       <p>Gerencie as rodadas, ações disponíveis, a semifinal (times com NFT em mãos) e a final para definir quem lidera em reais nesse jogo com NFTs, Bitcoin e cotas da piscina de liquidez.</p>
-      <div class="actions">
-        <label for="teamCount">Quantidade de times</label>
-        <input type="number" id="teamCount" value="${teamCount}" min="2" max="12" style="max-width:120px" />
-        <button id="startGameBtn">${liquidityGame ? 'Reiniciar jogo' : 'Iniciar jogo'}</button>
+      <div class="player-roster">
+        <h3>Jogadores cadastrados (${playerCount})</h3>
+        ${playerList}
       </div>
-      <p class="hint">Cada time inicia com R$1.600, 1 NFT em mãos e 0 BTC. Ajuste os nomes dos times no quadro abaixo quando o jogo começar.</p>
+      <div class="actions">
+        <button id="startGameBtn" ${disabledAttr}>${btnLabel}</button>
+      </div>
+      ${warning}
     </div>
     <div id="gameArea"></div>`;
-  view.innerHTML = html;
-  document.getElementById('startGameBtn').addEventListener('click', ()=>{
-    const qty = document.getElementById('teamCount').value;
-    liquidityGame = createLiquidityGame(qty);
-    renderLiquidityGameArea();
-  });
+
+  const startBtn = document.getElementById('startGameBtn');
+  if (startBtn){
+    startBtn.addEventListener('click', ()=>{
+      if (liquidityPlayers.length < 2){
+        alert('Cadastre pelo menos 2 usuários para iniciar o jogo.');
+        return;
+      }
+      const game = createLiquidityGame(liquidityPlayers);
+      if (!game){
+        alert('Não foi possível iniciar o jogo com os usuários cadastrados.');
+        return;
+      }
+      liquidityGame = game;
+      renderLiquidityGameArea();
+    });
+  }
+
   renderLiquidityGameArea();
 }
 
@@ -111,7 +164,14 @@ function renderLiquidityGameArea(){
   const container = document.getElementById('gameArea');
   if (!container) return;
   if (!liquidityGame){
-    container.innerHTML = `<p class="hint">Configure o número de times e clique em <strong>Iniciar jogo</strong> para começar a acompanhar as rodadas.</p>`;
+    const count = liquidityPlayers.length;
+    if (count >= 2){
+      container.innerHTML = `<p class="hint">Clique em <strong>Iniciar jogo</strong> para começar com os ${count} jogador(es) cadastrados.</p>`;
+    } else if (count === 1){
+      container.innerHTML = '<p class="hint">Cadastre pelo menos mais um usuário confirmado para iniciar o jogo.</p>';
+    } else {
+      container.innerHTML = '<p class="hint">Cadastre novos usuários para habilitar o jogo.</p>';
+    }
     return;
   }
   const state = liquidityGame;
@@ -129,11 +189,15 @@ function renderLiquidityGameArea(){
     classes.push(semifinalClass);
     if (state.championId === t.id) classes.push('champion');
     const semifinalTxt = t.eliminated ? 'Eliminado' : (t.nftHand>0 ? 'Sim' : 'Não');
+    const playerInfo = (t.playerName && t.playerName !== t.name)
+      ? `<div class="player-label"><small>Jogador: ${esc(t.playerName)}</small></div>`
+      : '';
     return `
       <tr class="${classes.join(' ')}">
         <td>${t.id}</td>
         <td>
           <span class="team-name">${esc(t.name)}</span>
+          ${playerInfo}
           <button class="btn-inline ghost rename-btn" data-team="${t.id}">Renomear</button>
         </td>
         <td class="numeric">${formatBRL(t.cash)}</td>
@@ -202,7 +266,7 @@ function renderLiquidityGameArea(){
       <table class="tbl game-table">
         <thead>
           <tr>
-            <th>#</th><th>Time</th><th>Caixa (R$)</th><th>Bitcoin (BTC)</th><th>NFTs em mãos</th><th>Cotas</th><th>Semifinal</th>
+            <th>#</th><th>Time / Jogador</th><th>Caixa (R$)</th><th>Bitcoin (BTC)</th><th>NFTs em mãos</th><th>Cotas</th><th>Semifinal</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
