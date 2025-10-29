@@ -46,7 +46,8 @@ function createLiquidityGame(teamCount){
     cash: 1600,
     btc: 0,
     nftHand: 1,
-    poolShares: 0
+    poolShares: 0,
+    eliminated: false
   }));
   return {
     round: 1,
@@ -54,8 +55,32 @@ function createLiquidityGame(teamCount){
     awaitingRoundEnd: false,
     teams,
     pool: { nfts:0, shares:0 },
-    history: []
+    history: [],
+    stage: 'regular',
+    championId: null
   };
+}
+
+const LIQUIDITY_STAGE_LABELS = {
+  regular: 'Fase classificatória',
+  semifinal: 'Semifinal',
+  final: 'Final',
+  finished: 'Jogo encerrado'
+};
+
+function activeLiquidityTeams(state){
+  return state.teams.filter(t=>!t.eliminated);
+}
+
+function nextActiveLiquidityIndex(state, fromIndex){
+  for (let i = fromIndex + 1; i < state.teams.length; i += 1){
+    if (!state.teams[i].eliminated) return i;
+  }
+  return -1;
+}
+
+function firstActiveLiquidityIndex(state){
+  return nextActiveLiquidityIndex(state, -1);
 }
 
 function viewLiquidityGame(){
@@ -64,7 +89,7 @@ function viewLiquidityGame(){
   const html = `
     <div class="section game-setup">
       <h1>Jogo Piscina de Liquidez</h1>
-      <p>Gerencie as rodadas, ações disponíveis e distribuições de uma turma jogando com NFTs, Bitcoin e cotas da piscina de liquidez.</p>
+      <p>Gerencie as rodadas, ações disponíveis, a semifinal (times com NFT em mãos) e a final para definir quem lidera em reais nesse jogo com NFTs, Bitcoin e cotas da piscina de liquidez.</p>
       <div class="actions">
         <label for="teamCount">Quantidade de times</label>
         <input type="number" id="teamCount" value="${teamCount}" min="2" max="12" style="max-width:120px" />
@@ -90,17 +115,22 @@ function renderLiquidityGameArea(){
     return;
   }
   const state = liquidityGame;
-  const team = state.awaitingRoundEnd ? null : state.teams[state.turnIndex];
+  const active = activeLiquidityTeams(state);
+  const stageLabel = LIQUIDITY_STAGE_LABELS[state.stage] || state.stage;
+  const team = (!state.awaitingRoundEnd && state.stage!=='finished') ? state.teams[state.turnIndex] : null;
   const dividendTotal = state.pool.nfts * 2000 * 0.10;
   const perShare = state.pool.shares ? dividendTotal / state.pool.shares : 0;
-  const semifinalReady = state.teams.filter(t=>t.nftHand>0);
-  const leaderCash = state.teams.slice().sort((a,b)=>b.cash - a.cash);
+  const semifinalReady = state.teams.filter(t=>!t.eliminated && t.nftHand>0);
+  const leaderCash = active.slice().sort((a,b)=>b.cash - a.cash);
 
   const rows = state.teams.map(t=>{
-    const semifinalClass = t.nftHand>0 ? 'ready-semifinal' : 'awaiting-semifinal';
-    const semifinalTxt = t.nftHand>0 ? 'Sim' : 'Não';
+    const classes = [];
+    const semifinalClass = t.eliminated ? 'eliminated' : (t.nftHand>0 ? 'ready-semifinal' : 'awaiting-semifinal');
+    classes.push(semifinalClass);
+    if (state.championId === t.id) classes.push('champion');
+    const semifinalTxt = t.eliminated ? 'Eliminado' : (t.nftHand>0 ? 'Sim' : 'Não');
     return `
-      <tr class="${semifinalClass}">
+      <tr class="${classes.join(' ')}">
         <td>${t.id}</td>
         <td>
           <span class="team-name">${esc(t.name)}</span>
@@ -117,16 +147,30 @@ function renderLiquidityGameArea(){
   const historyItems = state.history.map(h=>{
     const when = h.timestamp ? h.timestamp.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '';
     const who = h.team ? `<strong>${esc(h.team)}</strong> — ` : '';
-    return `<li><time>R${h.round} • ${when}</time>${who}${esc(h.message)}</li>`;
+    return `<li><time>Rodada ${h.round}${when ? ` • ${when}` : ''}</time>${who}${esc(h.message)}</li>`;
   }).join('');
 
   const leaderTxt = leaderCash.length ? `${leaderCash[0].name} (${formatBRL(leaderCash[0].cash)})` : '—';
+  const activeCount = active.length;
+  const stageButtons = [];
+  if (state.stage === 'regular') stageButtons.push('<button id="startSemifinalBtn">Iniciar semifinal</button>');
+  if (state.stage === 'semifinal') stageButtons.push('<button id="startFinalBtn">Iniciar final</button>');
+  if (state.stage === 'final') stageButtons.push('<button id="finishGameBtn">Encerrar jogo e definir campeão</button>');
+  const stageControls = stageButtons.length ? `
+    <div class="stage-controls">
+      <h3>Etapas do torneio</h3>
+      <div class="action-buttons">${stageButtons.join('')}</div>
+    </div>` : '';
 
   container.innerHTML = `
     <div class="game-summary">
       <div class="summary-card">
         <h4>Rodada atual</h4>
         <p>${state.round}</p>
+      </div>
+      <div class="summary-card">
+        <h4>Fase atual</h4>
+        <p>${esc(stageLabel)}</p>
       </div>
       <div class="summary-card">
         <h4>NFTs na piscina</h4>
@@ -143,6 +187,10 @@ function renderLiquidityGameArea(){
       <div class="summary-card">
         <h4>Aptos à semifinal</h4>
         <p>${semifinalReady.length}/${state.teams.length}</p>
+      </div>
+      <div class="summary-card">
+        <h4>Times ativos</h4>
+        <p>${activeCount}</p>
       </div>
       <div class="summary-card">
         <h4>Liderança em R$</h4>
@@ -162,13 +210,15 @@ function renderLiquidityGameArea(){
     </section>
     <section class="section game-actions">
       <h2>Ações da rodada</h2>
-      ${state.awaitingRoundEnd ? `
-        <p>Todos os times já realizaram uma ação nesta rodada.</p>
+      ${state.stage==='finished' ? `
+        <p>O jogo foi encerrado. Reinicie a partida para jogar novamente.</p>
+      ` : state.awaitingRoundEnd ? `
+        <p>Todos os times ativos já realizaram uma ação nesta rodada.</p>
         <p>Finalize para cobrar a taxa de R$100 e distribuir 10% do valor das NFTs da piscina entre as cotas.</p>
         <div class="action-buttons">
           <button id="endRoundBtn">Encerrar rodada ${state.round}</button>
         </div>
-      ` : `
+      ` : team ? `
         <p>Vez do <strong>${esc(team.name)}</strong>. Escolha uma ação:</p>
         <div class="action-buttons">
           <button data-act="deposit">Depositar NFT na piscina</button>
@@ -179,7 +229,8 @@ function renderLiquidityGameArea(){
           <button data-act="sell_share">Vender cota</button>
           <button data-act="pass">Passar a vez</button>
         </div>
-      `}
+      ` : '<p>Nenhum time ativo disponível para jogar.</p>'}
+      ${stageControls}
     </section>
     <section class="section">
       <h2>Histórico</h2>
@@ -192,15 +243,17 @@ function renderLiquidityGameArea(){
       renameLiquidityTeam(id);
     });
   });
-  if (!state.awaitingRoundEnd){
-    container.querySelectorAll('.action-buttons button').forEach(btn=>{
-      const act = btn.dataset.act;
-      if (act) btn.addEventListener('click', ()=>handleLiquidityAction(act));
-    });
-  } else {
-    const endBtn = container.querySelector('#endRoundBtn');
-    if (endBtn) endBtn.addEventListener('click', endLiquidityRound);
-  }
+  container.querySelectorAll('.action-buttons button[data-act]').forEach(btn=>{
+    btn.addEventListener('click', ()=>handleLiquidityAction(btn.dataset.act));
+  });
+  const endBtn = container.querySelector('#endRoundBtn');
+  if (endBtn) endBtn.addEventListener('click', endLiquidityRound);
+  const semifinalBtn = container.querySelector('#startSemifinalBtn');
+  if (semifinalBtn) semifinalBtn.addEventListener('click', startLiquiditySemifinal);
+  const finalBtn = container.querySelector('#startFinalBtn');
+  if (finalBtn) finalBtn.addEventListener('click', startLiquidityFinal);
+  const finishBtn = container.querySelector('#finishGameBtn');
+  if (finishBtn) finishBtn.addEventListener('click', finishLiquidityGame);
 }
 
 function renameLiquidityTeam(teamId){
@@ -228,9 +281,9 @@ function addLiquidityHistory(team, message){
 }
 
 function handleLiquidityAction(action){
-  if (!liquidityGame || liquidityGame.awaitingRoundEnd) return;
+  if (!liquidityGame || liquidityGame.awaitingRoundEnd || liquidityGame.stage==='finished') return;
   const team = liquidityGame.teams[liquidityGame.turnIndex];
-  if (!team) return;
+  if (!team || team.eliminated) return;
   if (action==='deposit') return liquidityDeposit(team);
   if (action==='withdraw') return liquidityWithdraw(team);
   if (action==='buy_btc') return liquidityBuyBTC(team);
@@ -314,6 +367,7 @@ function liquiditySellNFT(team){
   const buyer = liquidityGame.teams[idx];
   if (!buyer){ alert('Time comprador inválido.'); return; }
   if (buyer === team){ alert('Não é possível vender para o próprio time.'); return; }
+  if (buyer.eliminated){ alert('O comprador informado já foi eliminado do jogo.'); return; }
   if (buyer.cash + 1e-6 < price){ alert('O comprador não possui caixa suficiente.'); return; }
   buyer.cash -= price;
   buyer.nftHand = (buyer.nftHand || 0) + 1;
@@ -335,6 +389,7 @@ function liquiditySellShare(team){
   const buyer = liquidityGame.teams[idx];
   if (!buyer){ alert('Time comprador inválido.'); return; }
   if (buyer === team){ alert('Não é possível vender para o próprio time.'); return; }
+  if (buyer.eliminated){ alert('O comprador informado já foi eliminado do jogo.'); return; }
   if (buyer.cash + 1e-6 < price){ alert('O comprador não possui caixa suficiente.'); return; }
   buyer.cash -= price;
   buyer.poolShares = (buyer.poolShares || 0) + qty;
@@ -350,11 +405,15 @@ function liquidityPass(team){
 }
 
 function advanceLiquidityTurn(){
-  if (!liquidityGame) return;
-  liquidityGame.turnIndex += 1;
-  if (liquidityGame.turnIndex >= liquidityGame.teams.length){
-    liquidityGame.turnIndex = 0;
-    liquidityGame.awaitingRoundEnd = true;
+  if (!liquidityGame || liquidityGame.stage==='finished') return renderLiquidityGameArea();
+  const state = liquidityGame;
+  const next = nextActiveLiquidityIndex(state, state.turnIndex);
+  if (next === -1){
+    state.awaitingRoundEnd = true;
+    const first = firstActiveLiquidityIndex(state);
+    if (first !== -1) state.turnIndex = first;
+  } else {
+    state.turnIndex = next;
   }
   renderLiquidityGameArea();
 }
@@ -365,15 +424,87 @@ function endLiquidityRound(){
   const dividendTotal = state.pool.nfts * 2000 * 0.10;
   const perShare = state.pool.shares ? dividendTotal / state.pool.shares : 0;
   state.teams.forEach(team=>{
+    if (team.eliminated) return;
     team.cash -= 100;
     if (perShare > 0 && team.poolShares > 0){
       const gain = perShare * team.poolShares;
       team.cash += gain;
     }
   });
-  addLiquidityHistory(null, `Fim da rodada ${state.round}. Taxa de ${formatBRL(100)} aplicada a todos os times. ${state.pool.shares ? `Dividendos totais de ${formatBRL(dividendTotal)} (${formatBRL(perShare)} por cota).` : 'Sem dividendos pois não há cotas na piscina.'}`);
+  addLiquidityHistory(null, `Fim da rodada ${state.round}. Taxa de ${formatBRL(100)} aplicada a todos os times ativos. ${state.pool.shares ? `Dividendos totais de ${formatBRL(dividendTotal)} (${formatBRL(perShare)} por cota).` : 'Sem dividendos pois não há cotas na piscina.'}`);
   state.round += 1;
   state.awaitingRoundEnd = false;
+  const next = firstActiveLiquidityIndex(state);
+  if (next === -1){
+    state.stage = 'finished';
+  } else {
+    state.turnIndex = next;
+  }
+  renderLiquidityGameArea();
+}
+
+function startLiquiditySemifinal(){
+  if (!liquidityGame || liquidityGame.stage!=='regular') return;
+  if (liquidityGame.awaitingRoundEnd){
+    alert('Finalize a rodada atual antes de iniciar a semifinal.');
+    return;
+  }
+  const qualifiers = liquidityGame.teams.filter(t=>!t.eliminated && t.nftHand>0);
+  if (!qualifiers.length){
+    alert('Nenhum time possui NFT em mãos para avançar à semifinal.');
+    return;
+  }
+  const eliminated = liquidityGame.teams.filter(t=>!t.eliminated && t.nftHand<=0);
+  eliminated.forEach(t=>{ t.eliminated = true; });
+  liquidityGame.stage = 'semifinal';
+  liquidityGame.turnIndex = firstActiveLiquidityIndex(liquidityGame);
+  if (liquidityGame.turnIndex === -1){
+    liquidityGame.stage = 'finished';
+  }
+  const elimTxt = eliminated.length ? ` Eliminados: ${eliminated.map(t=>t.name).join(', ')}.` : ' Todos os times avançaram.';
+  addLiquidityHistory(null, `Semifinal iniciada. Classificados: ${qualifiers.map(t=>t.name).join(', ')}.${elimTxt}`);
+  renderLiquidityGameArea();
+}
+
+function startLiquidityFinal(){
+  if (!liquidityGame || liquidityGame.stage!=='semifinal') return;
+  if (liquidityGame.awaitingRoundEnd){
+    alert('Finalize a rodada atual antes de iniciar a final.');
+    return;
+  }
+  const finalists = activeLiquidityTeams(liquidityGame);
+  if (!finalists.length){
+    alert('Nenhum time ativo para disputar a final.');
+    return;
+  }
+  liquidityGame.stage = 'final';
+  liquidityGame.turnIndex = firstActiveLiquidityIndex(liquidityGame);
+  addLiquidityHistory(null, `Final iniciada com ${finalists.map(t=>t.name).join(', ')}.`);
+  renderLiquidityGameArea();
+}
+
+function finishLiquidityGame(){
+  if (!liquidityGame || liquidityGame.stage!=='final') return;
+  const finalists = activeLiquidityTeams(liquidityGame);
+  if (!finalists.length){
+    liquidityGame.stage = 'finished';
+    liquidityGame.championId = null;
+    addLiquidityHistory(null, 'Jogo encerrado sem times ativos.');
+    renderLiquidityGameArea();
+    return;
+  }
+  const topCash = Math.max(...finalists.map(t=>t.cash));
+  const winners = finalists.filter(t=>Math.abs(t.cash - topCash) < 1e-6);
+  liquidityGame.stage = 'finished';
+  liquidityGame.awaitingRoundEnd = true;
+  if (winners.length === 1){
+    liquidityGame.championId = winners[0].id;
+    addLiquidityHistory(null, `Jogo encerrado! Campeão: ${winners[0].name} com ${formatBRL(winners[0].cash)}.`);
+  } else {
+    liquidityGame.championId = null;
+    const names = winners.map(t=>t.name).join(', ');
+    addLiquidityHistory(null, `Jogo encerrado com empate entre ${names} (cada um com ${formatBRL(topCash)}).`);
+  }
   renderLiquidityGameArea();
 }
 
