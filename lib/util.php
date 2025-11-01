@@ -17,3 +17,16 @@ function ensure_user_accounts($user_id){
     }
   }
 }
+
+/**
+ * Cria um usuário com senha criptografada e garante as contas padrão.
+ */
+function create_user_with_accounts($name, $email, $password){
+  $pdo = db();
+  $stmt = $pdo->prepare("INSERT INTO users(name,email,password_hash) VALUES (?,?,?)");
+  $hash = password_hash($password, PASSWORD_BCRYPT);
+  $stmt->execute([$name, $email, $hash]);
+  $uid = intval($pdo->lastInsertId());
+  ensure_user_accounts($uid);
+  return $uid;
+}
