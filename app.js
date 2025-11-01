@@ -1,6 +1,8 @@
 const API = (path) => `api/${path}`;
 const AUTH = (path) => `auth/${path}`;
 
+let currentSession = { logged:false, user_id:null, is_admin:false, name:null, email:null };
+
 /* ========= Helpers ========= */
 function table(rows, keys, labels){
   const thead = `<thead><tr>${labels.map(l=>`<th>${l}</th>`).join('')}</tr></thead>`;
@@ -13,6 +15,10 @@ function needLogin(){
 async function getJSON(url, opts={}){
   const r = await fetch(url, { credentials:'include', ...opts });
   if (r.status === 401) return { __auth:false };
+  if (r.status === 403){
+    const err = await r.json().catch(()=>({}));
+    return { __forbidden:true, ...err };
+  }
   const data = await r.json().catch(()=>({}));
   return data;
 }
@@ -595,14 +601,40 @@ function finishLiquidityGame(){
 /* ========= Auth UI ========= */
 async function refreshAuthUI(){
   const s = await getJSON(API('session.php'));
+  currentSession = {
+    logged: !!(s && s.logged),
+    user_id: s && typeof s.user_id !== 'undefined' && s.user_id !== null ? parseInt(s.user_id, 10) : null,
+    name: s && s.name ? String(s.name) : null,
+    email: s && s.email ? String(s.email) : null,
+    is_admin: !!(s && s.is_admin)
+  };
+
   const loginForm = document.getElementById('loginForm');
   const loggedBox = document.getElementById('loggedBox');
-  if (s && s.logged) {
-    loginForm.style.display = 'none';
-    loggedBox.style.display = 'block';
+  const sessionInfo = document.getElementById('sessionInfo');
+
+  if (currentSession.logged) {
+    if (loginForm) loginForm.style.display = 'none';
+    if (loggedBox) loggedBox.style.display = 'block';
+    if (sessionInfo) {
+      let label = 'Conectado';
+      const identity = currentSession.name || currentSession.email;
+      if (identity) {
+        label += ` como ${identity}`;
+      }
+      if (currentSession.is_admin) {
+        label += ' • Admin';
+      }
+      sessionInfo.textContent = label;
+    }
   } else {
-    loginForm.style.display = 'block';
-    loggedBox.style.display = 'none';
+    if (loginForm) loginForm.style.display = 'block';
+    if (loggedBox) loggedBox.style.display = 'none';
+    if (sessionInfo) sessionInfo.textContent = 'Conectado';
+  }
+
+  if (document.body) {
+    document.body.classList.toggle('is-admin', currentSession.is_admin);
   }
 }
 function initAuth(){
@@ -758,6 +790,48 @@ async function viewTrades(){
   document.getElementById('tradesBox').innerHTML = table(rows,['id','qty','price','created_at'],['#','Qtd','Preço','Quando']);
 }
 
+async function viewAdmin(){
+  const view = document.getElementById('view');
+  view.innerHTML = `<h1>Painel Administrativo</h1><p>Carregando informações...</p>`;
+
+  const data = await getJSON(API('admin_users.php'));
+  if (data.__auth === false) return needLogin();
+  if (data.__forbidden) {
+    view.innerHTML = `<h1>Acesso restrito</h1><p>Somente administradores podem visualizar esta área.</p>`;
+    return;
+  }
+
+  const arr = Array.isArray(data) ? data : [];
+  const total = arr.length;
+  const confirmedCount = arr.filter(u => Number(u.confirmed) === 1).length;
+  const adminCount = arr.filter(u => Number(u.is_admin) === 1).length;
+
+  const rows = arr.map(u => ({
+    id: u.id,
+    nome: esc(u.name ?? ''),
+    email: esc(u.email ?? ''),
+    confirmado: Number(u.confirmed) === 1 ? 'Sim' : 'Não',
+    admin: Number(u.is_admin) === 1 ? 'Sim' : 'Não',
+    criado_em: esc(u.created_at ?? '')
+  }));
+
+  const stats = `
+    <div class="stats">
+      <div class="stat-card"><span>Usuários</span><strong>${total}</strong></div>
+      <div class="stat-card"><span>Confirmados</span><strong>${confirmedCount}</strong></div>
+      <div class="stat-card"><span>Administradores</span><strong>${adminCount}</strong></div>
+    </div>`;
+
+  view.innerHTML = `
+    <div class="section admin-dashboard">
+      <h1>Painel Administrativo</h1>
+      <p>Visualize rapidamente os usuários confirmados e quem possui acesso administrativo.</p>
+      ${stats}
+      <h2>Usuários cadastrados</h2>
+      ${table(rows, ['id','nome','email','confirmado','admin','criado_em'], ['#','Nome','E-mail','Confirmado','Admin','Criado em'])}
+    </div>`;
+}
+
 /* ========= Menu ========= */
 function initMenu(){
   document.querySelectorAll('a[data-view]').forEach(a=>{
@@ -771,6 +845,7 @@ function initMenu(){
       if (v==='mercado_btc') return viewMercadoBTC();
       if (v==='trades') return viewTrades();
       if (v==='liquidity_game') return viewLiquidityGame();
+      if (v==='admin') return viewAdmin();
     });
   });
 }
