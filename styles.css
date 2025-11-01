@@ -4,6 +4,8 @@ body { margin:0; font-family: system-ui, Arial; display:flex; min-height:100vh; 
 .menu { width:300px; background:var(--panel); color:#fff; padding:16px; }
 .menu h3 { margin-top:0; }
 .menu ul { list-style:none; padding:0; margin:16px 0 0; }
+.admin-only { display:none; }
+body.is-admin .admin-only { display:list-item; }
 .menu a { color:#fff; text-decoration:none; display:block; padding:8px 6px; border-radius:8px; }
 .menu a:hover { background:#374151; }
 #view { flex:1; padding:24px; }
@@ -49,3 +51,7 @@ small.hint { color:#6b7280; }
 .game-history { max-height:280px; overflow-y:auto; padding-left:18px; }
 .game-history li { margin-bottom:6px; }
 .game-history time { color:#6b7280; font-size:0.85rem; margin-right:6px; }
+.admin-dashboard .stats { display:flex; flex-wrap:wrap; gap:12px; margin:16px 0; }
+.admin-dashboard .stat-card { background:#111827; color:#f9fafb; border-radius:10px; padding:12px 16px; min-width:180px; }
+.admin-dashboard .stat-card span { display:block; font-size:0.85rem; color:#d1d5db; text-transform:uppercase; letter-spacing:0.05em; }
+.admin-dashboard .stat-card strong { font-size:1.4rem; display:block; margin-top:4px; }

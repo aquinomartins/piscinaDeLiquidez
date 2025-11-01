@@ -364,18 +364,19 @@ CREATE TABLE `users` (
   `email` varchar(160) DEFAULT NULL,
   `password_hash` varchar(255) NOT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `confirmed` tinyint DEFAULT '0'
+  `confirmed` tinyint DEFAULT '0',
+  `is_admin` tinyint DEFAULT '0'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 --
 -- Despejando dados para a tabela `users`
 --
 
-INSERT INTO `users` (`id`, `name`, `email`, `password_hash`, `created_at`, `confirmed`) VALUES
-(1, 'Demo', 'demo@artx', 'x', '2025-10-29 02:32:49', 0),
-(2, 'aqyo', 'aquinomartins.art@gmail.com', '$2y$10$xEl6WrRLdyKfBu17dW7IKe8.hxKsoeXCInt32i/LytJqzYi6RfvQ2', '2025-10-29 02:48:49', 1),
-(3, 'maria', 'mariaaqui@gmail.com', '$2y$10$4.QM2P615hITRzV2rdyr/.WP5hInaKL1YYOflglVR.xnApKy8VxZu', '2025-10-29 02:56:54', 0),
-(9, 'martys', 'alvorascapital@gmail.com', '$2y$10$0up.acQQw4X1HU9DkTQXduL2sMQtP.mua8qNjr0FRagssFEyK5yzK', '2025-10-29 04:05:08', 1);
+INSERT INTO `users` (`id`, `name`, `email`, `password_hash`, `created_at`, `confirmed`, `is_admin`) VALUES
+(1, 'Demo', 'demo@artx', 'x', '2025-10-29 02:32:49', 0, 0),
+(2, 'aqyo', 'aquinomartins.art@gmail.com', '$2y$10$xEl6WrRLdyKfBu17dW7IKe8.hxKsoeXCInt32i/LytJqzYi6RfvQ2', '2025-10-29 02:48:49', 1, 1),
+(3, 'maria', 'mariaaqui@gmail.com', '$2y$10$4.QM2P615hITRzV2rdyr/.WP5hInaKL1YYOflglVR.xnApKy8VxZu', '2025-10-29 02:56:54', 0, 0),
+(9, 'martys', 'alvorascapital@gmail.com', '$2y$10$0up.acQQw4X1HU9DkTQXduL2sMQtP.mua8qNjr0FRagssFEyK5yzK', '2025-10-29 04:05:08', 1, 0);
 
 -- --------------------------------------------------------
 
